@@ -29,14 +29,14 @@ export function ThemeToggle({ variant = 'default' }: ThemeToggleProps) {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  const iconSize = variant === 'compact' ? 15 : 20;
+  const iconSize = variant === 'compact' ? 18 : 20;
 
   return (
     <button
       type="button"
       onClick={toggle}
       aria-label="Changer le thème"
-      className="p-1.5 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground"
+      className="p-2 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground"
     >
       {theme === 'dark' ? (
         <Sun size={iconSize} />

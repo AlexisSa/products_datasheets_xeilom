@@ -59,25 +59,25 @@ export function Header({
 }: HeaderProps) {
   return (
     <header className="sticky top-0 z-50 border-b border-border/80 backdrop-blur-md bg-background/90 shadow-sm">
-      <div className="max-w-[1600px] mx-auto px-4 h-12 flex items-center justify-between gap-4 sm:gap-6">
+      <div className="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between gap-4 sm:gap-6">
         {/* Logo */}
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="w-6 h-6 bg-blue-600 rounded-md flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <Package className="text-white w-3.5 h-3.5" />
+        <div className="flex items-center gap-2.5 shrink-0">
+          <div className="w-8 h-8 bg-blue-600 rounded-md flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <Package className="text-white w-4 h-4" />
           </div>
-          <h1 className="font-black tracking-tighter text-blue-600 dark:text-blue-400 text-[13px]">
-            PRODUCT HUB
+          <h1 className="font-black tracking-tighter text-blue-600 dark:text-blue-400 text-[15px]">
+            DATASHEETS HUB
           </h1>
         </div>
 
         {/* Recherche */}
         <div className="flex-1 max-w-xl min-w-0">
           <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground group-focus-within:text-blue-600 dark:group-focus-within:text-blue-400 transition-colors" />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-blue-600 dark:group-focus-within:text-blue-400 transition-colors" />
             <input
               type="search"
               placeholder="Référence, nom, SKU..."
-              className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-input bg-muted/30 focus:bg-background focus:border-blue-500/50 dark:focus:border-blue-400/50 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-400/10 outline-none text-[11px] transition-all"
+              className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-input bg-muted/30 focus:bg-background focus:border-blue-500/50 dark:focus:border-blue-400/50 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-400/10 outline-none text-sm transition-all"
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
             />
@@ -87,7 +87,7 @@ export function Header({
         {/* Actions droite */}
         <div className="flex items-center gap-2 shrink-0">
           <ThemeToggle variant="compact" />
-          <div className="h-4 w-px bg-border mx-1" />
+          <div className="h-6 w-px bg-border mx-1" />
           <CartTrigger count={cartCount} onClick={onCartOpen} variant="compact" />
         </div>
       </div>

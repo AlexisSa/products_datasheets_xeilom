@@ -39,12 +39,12 @@ export function ProductCard({ product }: ProductCardProps) {
       className={`overflow-hidden group hover:shadow-lg transition-shadow flex flex-col ${canDownload ? 'cursor-pointer' : ''} ${isUnavailable ? 'opacity-75' : ''}`}
       onClick={canDownload ? handleAddToCart : undefined}
     >
-      <div className="aspect-square bg-muted relative">
+      <div className="aspect-square relative overflow-hidden">
         <img
           src={product.image || product.imageSmall}
           alt={product.name}
           loading="lazy"
-          className="w-full h-full object-contain p-4"
+          className="w-full h-full object-cover"
           onError={(e) => {
             e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23e5e7eb" width="100" height="100"/><text x="50" y="55" font-size="12" fill="%239ca3af" text-anchor="middle">No image</text></svg>';
           }}

@@ -255,14 +255,14 @@ export function CartTrigger({
       <button
         type="button"
         onClick={onClick}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm group bg-card hover:bg-muted/80 border border-border"
+        className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-bold transition-all shadow-sm group bg-card hover:bg-muted/80 border border-border"
         aria-label={`Liste de PDF : ${count} fiche${count !== 1 ? 's' : ''} sélectionnée${count !== 1 ? 's' : ''}`}
       >
-        <FileText size={14} className="text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform" />
-        <span className="hidden sm:inline text-[11px]">Liste de PDF</span>
+        <FileText size={16} className="text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform" />
+        <span className="hidden sm:inline text-xs">Liste de PDF</span>
         <span
           className={cn(
-            'flex items-center justify-center px-1.5 h-4 text-[9px] rounded-full',
+            'flex items-center justify-center px-2 h-5 min-w-5 text-[10px] rounded-full',
             count > 0 ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground'
           )}
         >
