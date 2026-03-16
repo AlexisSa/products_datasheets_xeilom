@@ -2,11 +2,15 @@ import { Button } from '@/components/ui/button';
 import { Moon, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+function getInitialTheme(): 'light' | 'dark' {
+  if (typeof window === 'undefined') return 'light';
+  const stored = localStorage.getItem('theme');
+  if (stored === 'dark' || stored === 'light') return stored;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window === 'undefined') return 'light';
-    return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-  });
+  const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
 
   useEffect(() => {
     const root = document.documentElement;

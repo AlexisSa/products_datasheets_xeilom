@@ -1,3 +1,5 @@
+export type SheetStatus = 'available' | 'unavailable' | 'none';
+
 export interface Product {
   id: string;
   sku: string;
@@ -11,6 +13,7 @@ export interface Product {
   productUrl: string;
   sheetUrl: string;
   hasSheet: boolean;
+  sheetStatus: SheetStatus;
 }
 
 export interface ProductsData {

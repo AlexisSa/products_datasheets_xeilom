@@ -8,6 +8,8 @@ export interface BulkDownloadResult {
   total: number;
 }
 
+const CONCURRENCY = 5;
+
 async function fetchWithProxy(url: string): Promise<Blob> {
   const proxyUrl = getProxyDownloadUrl(url);
   const res = await fetch(proxyUrl);
@@ -37,6 +39,27 @@ export interface BulkDownloadItem {
   sku: string;
 }
 
+async function runWithConcurrency<T>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<void>,
+  concurrency: number
+): Promise<void> {
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await fn(items[idx], idx);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => worker()
+  );
+  await Promise.all(workers);
+}
+
 export async function downloadBulk(
   items: BulkDownloadItem[],
   baseFolderName = 'fiches-techniques',
@@ -50,27 +73,30 @@ export async function downloadBulk(
   const rootFolder = zip.folder(safeBaseFolderName);
   let success = 0;
   let failed = 0;
+  let completed = 0;
 
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    try {
-      const blob = await fetchWithProxy(item.sheetUrl);
-      const productFolder = rootFolder?.folder(
-        (item.sku || 'produit').replace(/[^a-zA-Z0-9.-]/g, '_')
-      );
-      const pdfExt = 'pdf';
-      const pdfName = `${item.sku}-${item.name.slice(0, 50)}.${pdfExt}`.replace(
-        /[^a-zA-Z0-9.-]/g,
-        '_'
-      );
-      productFolder?.file(pdfName, blob);
-
-      success++;
-    } catch {
-      failed++;
-    }
-    onProgress?.(i + 1, items.length);
-  }
+  await runWithConcurrency(
+    items,
+    async (item) => {
+      try {
+        const blob = await fetchWithProxy(item.sheetUrl);
+        const productFolder = rootFolder?.folder(
+          (item.sku || 'produit').replace(/[^a-zA-Z0-9.-]/g, '_')
+        );
+        const pdfName = `${item.sku}-${item.name.slice(0, 50)}.pdf`.replace(
+          /[^a-zA-Z0-9.-]/g,
+          '_'
+        );
+        productFolder?.file(pdfName, blob);
+        success++;
+      } catch {
+        failed++;
+      }
+      completed++;
+      onProgress?.(completed, items.length);
+    },
+    CONCURRENCY
+  );
 
   const date = new Date().toISOString().slice(0, 10);
   const filename = `fiches-techniques-XEILOM-${date}.zip`;

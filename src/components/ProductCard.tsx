@@ -1,7 +1,8 @@
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Download, ExternalLink } from 'lucide-react';
+import { Download, ExternalLink, FileWarning, FileX } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { useToastStore } from '@/store/toastStore';
 import { downloadSingle } from '@/lib/downloadUtils';
@@ -17,8 +18,11 @@ export function ProductCard({ product }: ProductCardProps) {
   const addToast = useToastStore((s) => s.add);
   const inCart = isInCart(product.id);
 
+  const canDownload = product.sheetStatus === 'available';
+  const isUnavailable = product.sheetStatus === 'unavailable';
+
   const handleAddToCart = () => {
-    if (product.hasSheet) {
+    if (canDownload) {
       toggle({
         id: product.id,
         name: product.name,
@@ -32,8 +36,8 @@ export function ProductCard({ product }: ProductCardProps) {
 
   return (
     <Card
-      className={`overflow-hidden group hover:shadow-lg transition-shadow flex flex-col ${product.hasSheet ? 'cursor-pointer' : ''}`}
-      onClick={product.hasSheet ? handleAddToCart : undefined}
+      className={`overflow-hidden group hover:shadow-lg transition-shadow flex flex-col ${canDownload ? 'cursor-pointer' : ''} ${isUnavailable ? 'opacity-75' : ''}`}
+      onClick={canDownload ? handleAddToCart : undefined}
     >
       <div className="aspect-square bg-muted relative">
         <img
@@ -49,7 +53,7 @@ export function ProductCard({ product }: ProductCardProps) {
           className="absolute top-2 right-2"
           onClick={(e) => e.stopPropagation()}
         >
-          {product.hasSheet && (
+          {canDownload && (
             <Checkbox
               checked={inCart}
               onChange={handleAddToCart}
@@ -57,6 +61,26 @@ export function ProductCard({ product }: ProductCardProps) {
             />
           )}
         </div>
+        {isUnavailable && (
+          <div className="absolute top-2 left-2">
+            <Badge
+              className="bg-amber-500/90 text-white border-0 text-[10px] px-1.5 py-0.5 gap-1"
+            >
+              <FileWarning className="h-3 w-3" />
+              PDF indisponible
+            </Badge>
+          </div>
+        )}
+        {product.sheetStatus === 'none' && (
+          <div className="absolute top-2 left-2">
+            <Badge
+              className="bg-muted text-muted-foreground border-0 text-[10px] px-1.5 py-0.5 gap-1 opacity-70"
+            >
+              <FileX className="h-3 w-3" />
+              Pas de PDF
+            </Badge>
+          </div>
+        )}
       </div>
       <CardContent className="p-4 flex-1 flex flex-col">
         <p className="text-xs text-muted-foreground">
@@ -66,7 +90,7 @@ export function ProductCard({ product }: ProductCardProps) {
         <p className="text-sm text-muted-foreground mt-1">{product.category}</p>
       </CardContent>
       <CardFooter className="flex gap-2 p-4 pt-0">
-        {product.hasSheet && (
+        {canDownload && (
           <Button
             size="sm"
             variant="outline"
@@ -82,12 +106,18 @@ export function ProductCard({ product }: ProductCardProps) {
             <Download className="h-4 w-4 mr-1" /> Télécharger
           </Button>
         )}
+        {isUnavailable && (
+          <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <FileWarning className="h-3.5 w-3.5" />
+            Fiche supprimée
+          </span>
+        )}
         <a
           href={getProductUrl(product.id, product.productUrl)}
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Voir le produit"
-          className="inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent hover:text-accent-foreground"
+          className="inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent hover:text-accent-foreground ml-auto"
           onClick={(e) => e.stopPropagation()}
         >
           <ExternalLink className="h-4 w-4" />

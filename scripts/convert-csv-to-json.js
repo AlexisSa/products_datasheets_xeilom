@@ -1,31 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import Papa from 'papaparse';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const csvPath = process.argv[2] || path.join(__dirname, '../Oxatis-All-xeilom-26993 - Oxatis-All-xeilom-26993.csv_avec_fiches_corrige.csv');
 const fallbackCsvPath = path.join(__dirname, '../../Oxatis-All-xeilom-26993 - Oxatis-All-xeilom-26993.csv_avec_fiches_corrige.csv');
-
-function parseCSVLine(line) {
-  const result = [];
-  let current = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') {
-      inQuotes = !inQuotes;
-    } else if ((c === ',' && !inQuotes) || c === '\r') {
-      result.push(current.trim());
-      current = '';
-    } else {
-      current += c;
-    }
-  }
-  result.push(current.trim());
-  return result;
-}
 
 function getCsvPath() {
   if (fs.existsSync(csvPath)) return csvPath;
@@ -35,31 +17,33 @@ function getCsvPath() {
 
 const resolvedCsvPath = getCsvPath();
 const csv = fs.readFileSync(resolvedCsvPath, 'utf-8');
-const lines = csv.split('\n').filter((l) => l.trim());
-const headers = parseCSVLine(lines[0]);
+
+const { data: rows, errors } = Papa.parse(csv, {
+  header: true,
+  skipEmptyLines: true,
+  transformHeader: (h) => h.trim(),
+});
+
+if (errors.length > 0) {
+  console.warn(`CSV parsing warnings: ${errors.length} issue(s)`);
+  errors.slice(0, 5).forEach((e) => console.warn(`  Row ${e.row}: ${e.message}`));
+}
 
 const products = [];
 const categoriesSet = new Set();
 const brandsSet = new Set();
 
-for (let i = 1; i < lines.length; i++) {
-  const values = parseCSVLine(lines[i]);
-  if (values.length < 2) continue;
-
-  const row = {};
-  headers.forEach((h, idx) => {
-    row[h] = values[idx] || '';
-  });
-
-  const category1 = row.Category1Name || '';
+for (const row of rows) {
+  const category1 = (row.Category1Name || '').trim();
   const mainCategory = category1.split('\\')[0]?.trim() || 'Autres';
 
   if (mainCategory) categoriesSet.add(mainCategory);
-  const brand = row.BrandName?.trim() || 'Générique';
+  const brand = (row.BrandName || '').trim() || 'Générique';
   if (brand) brandsSet.add(brand);
 
   const sheetUrl = (row.ProductSheetUrl || '').trim();
-  const hasSheet = sheetUrl.length > 0 && !sheetUrl.endsWith(',');
+  const hasSheet = sheetUrl.length > 0 && /^https?:\/\//i.test(sheetUrl);
+  const isPBFilePlayer = hasSheet && sheetUrl.includes('PBFilePlayer.asp');
 
   products.push({
     id: String(row.OxatisId || '').trim(),
@@ -68,12 +52,13 @@ for (let i = 1; i < lines.length; i++) {
     category: mainCategory,
     categoryFull: category1,
     brand,
-    description: (row.Name || '').trim(),
+    description: (row.ShortDescription || row.LongDescription || row.Name || '').trim(),
     image: (row.UrlBigImgFileName || row.UrlSmallImgFileName || '').trim(),
     imageSmall: (row.UrlSmallImgFileName || row.UrlBigImgFileName || '').trim(),
     productUrl: (row.ProductUrl || '').trim(),
     sheetUrl: hasSheet ? sheetUrl : '',
     hasSheet,
+    sheetStatus: hasSheet ? (isPBFilePlayer ? 'unavailable' : 'available') : 'none',
   });
 }
 
