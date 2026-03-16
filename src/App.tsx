@@ -1,17 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ProductCard } from '@/components/ProductCard';
-import { SearchBar } from '@/components/SearchBar';
-import { CategoryFilter } from '@/components/CategoryFilter';
-import { BrandFilter } from '@/components/BrandFilter';
-import { SortSelect, type SortOption } from '@/components/SortSelect';
-import { SheetStatusFilter, type SheetStatusFilterValue } from '@/components/SheetStatusFilter';
+import { Header, FilterBar, SelectionBar } from '@/components/Header';
 import { DownloadCart } from '@/components/DownloadCart';
-import { ThemeToggle } from '@/components/ThemeToggle';
 import { Toast } from '@/components/Toast';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { useCartStore } from '@/store/cartStore';
 import type { ProductsData, Product } from '@/types/product';
+import type { SortOption } from '@/components/SortSelect';
+import type { SheetStatusFilterValue } from '@/components/SheetStatusFilter';
 
 const ITEMS_PER_PAGE = 48;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -34,7 +31,8 @@ function App() {
   const [sort, setSort] = useState<SortOption>('name-asc');
   const [sheetFilter, setSheetFilter] = useState<SheetStatusFilterValue>('');
   const [page, setPage] = useState(1);
-  const { addMany, removeMany } = useCartStore();
+  const [cartOpen, setCartOpen] = useState(false);
+  const { addMany, removeMany, items } = useCartStore();
   const gridRef = useRef<HTMLDivElement>(null);
 
   const debouncedSearch = useDebounce(search, SEARCH_DEBOUNCE_MS);
@@ -131,6 +129,15 @@ function App() {
     removeMany(ids);
   }, [selectableProducts, removeMany]);
 
+  const handleResetFilters = useCallback(() => {
+    setSearch('');
+    setCategory('');
+    setBrand('');
+    setSheetFilter('');
+    setSort('name-asc');
+    setPage(1);
+  }, []);
+
   const goToPage = useCallback((target: number) => {
     setPage(target);
     gridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -158,7 +165,7 @@ function App() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
           <p className="text-muted-foreground">Chargement du catalogue...</p>
         </div>
       </div>
@@ -169,62 +176,38 @@ function App() {
   const endItem = Math.min(page * ITEMS_PER_PAGE, filteredProducts.length);
 
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-              <h1 className="text-xl font-semibold">Product Hub</h1>
-              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                <SearchBar value={search} onChange={setSearch} />
-                <CategoryFilter
-                  categories={data.categories}
-                  value={category}
-                  onChange={setCategory}
-                />
-                <BrandFilter
-                  brands={data.brands}
-                  value={brand}
-                  onChange={setBrand}
-                />
-                <SheetStatusFilter
-                  value={sheetFilter}
-                  onChange={setSheetFilter}
-                  counts={sheetStatusCounts}
-                />
-                <SortSelect value={sort} onChange={setSort} />
-                <ThemeToggle />
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-muted-foreground">
-                {filteredProducts.length} produit{filteredProducts.length !== 1 ? 's' : ''} affiché
-                {filteredProducts.length !== 1 ? 's' : ''}
-              </span>
-              {selectableProducts.length > 0 && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSelectAll}
-                  >
-                    Tout sélectionner ({selectableProducts.length})
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleDeselectAll}
-                  >
-                    Tout désélectionner
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen text-xs">
+      <Header
+        search={search}
+        onSearchChange={setSearch}
+        cartCount={items.length}
+        onCartOpen={() => setCartOpen(true)}
+      />
 
-      <main className="container mx-auto px-4 py-6" ref={gridRef}>
+      <main className="max-w-[1600px] mx-auto p-4 space-y-4" ref={gridRef}>
+        <FilterBar
+          category={category}
+          onCategoryChange={setCategory}
+          brand={brand}
+          onBrandChange={setBrand}
+          sheetFilter={sheetFilter}
+          onSheetFilterChange={setSheetFilter}
+          sort={sort}
+          onSortChange={setSort}
+          categories={data.categories}
+          brands={data.brands}
+          sheetCounts={sheetStatusCounts}
+          onResetFilters={handleResetFilters}
+        />
+
+        <SelectionBar
+          selectedCount={items.length}
+          totalSelectable={selectableProducts.length}
+          totalProducts={data.products.length}
+          onSelectAll={handleSelectAll}
+          onDeselectAll={handleDeselectAll}
+        />
+
         <ErrorBoundary>
           {filteredProducts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -248,7 +231,7 @@ function App() {
                   <p className="text-sm text-muted-foreground">
                     Produits {startItem}–{endItem} sur {filteredProducts.length}
                   </p>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 flex-wrap justify-center">
                     <Button
                       variant="outline"
                       size="sm"
@@ -311,7 +294,7 @@ function App() {
         </ErrorBoundary>
       </main>
 
-      <DownloadCart />
+      <DownloadCart isOpen={cartOpen} onClose={() => setCartOpen(false)} />
       <Toast />
     </div>
   );

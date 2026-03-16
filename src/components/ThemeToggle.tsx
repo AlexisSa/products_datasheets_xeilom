@@ -1,4 +1,3 @@
-import { Button } from '@/components/ui/button';
 import { Moon, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -9,7 +8,11 @@ function getInitialTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-export function ThemeToggle() {
+interface ThemeToggleProps {
+  variant?: 'default' | 'compact';
+}
+
+export function ThemeToggle({ variant = 'default' }: ThemeToggleProps) {
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
 
   useEffect(() => {
@@ -26,13 +29,20 @@ export function ThemeToggle() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
+  const iconSize = variant === 'compact' ? 15 : 20;
+
   return (
-    <Button variant="ghost" size="icon" onClick={toggle} aria-label="Changer le thème">
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label="Changer le thème"
+      className="p-1.5 rounded-lg transition-colors hover:bg-muted text-muted-foreground hover:text-foreground"
+    >
       {theme === 'dark' ? (
-        <Sun className="h-5 w-5" />
+        <Sun size={iconSize} />
       ) : (
-        <Moon className="h-5 w-5" />
+        <Moon size={iconSize} />
       )}
-    </Button>
+    </button>
   );
 }
