@@ -35,8 +35,6 @@ export interface BulkDownloadItem {
   name: string;
   sheetUrl: string;
   sku: string;
-  image?: string;
-  imageSmall?: string;
 }
 
 export async function downloadBulk(
@@ -66,28 +64,6 @@ export async function downloadBulk(
         '_'
       );
       productFolder?.file(pdfName, blob);
-
-      const imgFolder = productFolder?.folder('img');
-
-      const imageUrls = [item.image, item.imageSmall].filter(
-        (u): u is string => !!u
-      );
-
-      for (let idx = 0; idx < imageUrls.length; idx++) {
-        const url = imageUrls[idx];
-        try {
-          const imageBlob = await fetchWithProxy(url);
-          const urlWithoutQuery = url.split('?')[0];
-          const extMatch = urlWithoutQuery.match(/\.([a-zA-Z0-9]+)$/);
-          const ext = (extMatch?.[1] || 'jpg').toLowerCase();
-          const imgName =
-            idx === 0
-              ? `image.${ext}`
-              : `image-${idx + 1}.${ext}`;
-          imgFolder?.file(imgName, imageBlob);
-        } catch {
-        }
-      }
 
       success++;
     } catch {

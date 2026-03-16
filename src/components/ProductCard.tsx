@@ -31,7 +31,10 @@ export function ProductCard({ product }: ProductCardProps) {
   };
 
   return (
-    <Card className="overflow-hidden group hover:shadow-lg transition-shadow flex flex-col">
+    <Card
+      className={`overflow-hidden group hover:shadow-lg transition-shadow flex flex-col ${product.hasSheet ? 'cursor-pointer' : ''}`}
+      onClick={product.hasSheet ? handleAddToCart : undefined}
+    >
       <div className="aspect-square bg-muted relative">
         <img
           src={product.image || product.imageSmall}
@@ -42,7 +45,10 @@ export function ProductCard({ product }: ProductCardProps) {
             e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23e5e7eb" width="100" height="100"/><text x="50" y="55" font-size="12" fill="%239ca3af" text-anchor="middle">No image</text></svg>';
           }}
         />
-        <div className="absolute top-2 right-2">
+        <div
+          className="absolute top-2 right-2"
+          onClick={(e) => e.stopPropagation()}
+        >
           {product.hasSheet && (
             <Checkbox
               checked={inCart}
@@ -64,7 +70,8 @@ export function ProductCard({ product }: ProductCardProps) {
           <Button
             size="sm"
             variant="outline"
-            onClick={async () => {
+            onClick={async (e) => {
+              e.stopPropagation();
               await downloadSingle(
                 product.sheetUrl,
                 `${product.sku}.pdf`,
@@ -81,6 +88,7 @@ export function ProductCard({ product }: ProductCardProps) {
           rel="noopener noreferrer"
           aria-label="Voir le produit"
           className="inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent hover:text-accent-foreground"
+          onClick={(e) => e.stopPropagation()}
         >
           <ExternalLink className="h-4 w-4" />
         </a>

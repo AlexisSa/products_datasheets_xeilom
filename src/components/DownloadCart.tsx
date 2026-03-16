@@ -1,10 +1,13 @@
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Download, Trash2, FileDown, X } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Download, Trash2, FileDown, X, FolderOpen } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { downloadBulk } from '@/lib/downloadUtils';
 import { useToastStore } from '@/store/toastStore';
 import { useState, useRef, useEffect } from 'react';
+
+const DEFAULT_FOLDER_NAME = 'fiches-techniques-XEILOM';
 
 export function DownloadCart() {
   const { items, remove, clear } = useCartStore();
@@ -12,7 +15,10 @@ export function DownloadCart() {
   const [isOpen, setIsOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [folderName, setFolderName] = useState(DEFAULT_FOLDER_NAME);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen && closeButtonRef.current) {
@@ -20,13 +26,18 @@ export function DownloadCart() {
     }
   }, [isOpen]);
 
-  const handleBulkDownload = async () => {
+  useEffect(() => {
+    if (showNameModal) {
+      setFolderName(DEFAULT_FOLDER_NAME);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [showNameModal]);
+
+  const runDownload = async () => {
     if (items.length === 0) return;
 
-    const folderName =
-      window.prompt('Nom du dossier principal dans le ZIP :', 'fiches-techniques-XEILOM') ||
-      'fiches-techniques-XEILOM';
-
+    const name = folderName.trim() || DEFAULT_FOLDER_NAME;
+    setShowNameModal(false);
     setIsDownloading(true);
     setProgress({ done: 0, total: items.length });
     try {
@@ -35,10 +46,8 @@ export function DownloadCart() {
           name: i.name,
           sheetUrl: i.sheetUrl,
           sku: i.sku,
-          image: i.image,
-          imageSmall: i.imageSmall,
         })),
-        folderName,
+        name,
         (done, total) => setProgress({ done, total })
       );
 
@@ -50,6 +59,8 @@ export function DownloadCart() {
       } else {
         addToast(`${result.success} fiche(s) téléchargée(s)`, 'success');
       }
+      clear();
+      setIsOpen(false);
     } catch {
       addToast('Erreur lors du téléchargement', 'error');
     } finally {
@@ -57,10 +68,66 @@ export function DownloadCart() {
     }
   };
 
-  if (items.length === 0) return null;
+  const handleBulkDownload = () => {
+    if (items.length === 0) return;
+    setShowNameModal(true);
+  };
 
   return (
     <>
+      {showNameModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-title"
+        >
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowNameModal(false)}
+            aria-hidden="true"
+          />
+          <div className="relative bg-card border rounded-xl shadow-2xl p-6 w-full max-w-md">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <FolderOpen className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 id="modal-title" className="font-semibold text-lg">
+                  Nom du dossier ZIP
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Choisissez le nom du dossier principal dans l’archive
+                </p>
+              </div>
+            </div>
+            <Input
+              ref={inputRef}
+              value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+              placeholder={DEFAULT_FOLDER_NAME}
+              className="mb-6"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') runDownload();
+                if (e.key === 'Escape') setShowNameModal(false);
+              }}
+            />
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setShowNameModal(false)}
+              >
+                Annuler
+              </Button>
+              <Button onClick={runDownload}>
+                <Download className="h-4 w-4 mr-2" />
+                Télécharger
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {items.length > 0 && (
       <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
         {isOpen && (
           <div
@@ -138,6 +205,7 @@ export function DownloadCart() {
           </Badge>
         </Button>
       </div>
+      )}
     </>
   );
 }
