@@ -6,7 +6,7 @@ import { Toast } from '@/components/Toast';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { useCartStore } from '@/store/cartStore';
-import type { ProductsData, Product } from '@/types/product';
+import type { ProductsData } from '@/types/product';
 import type { SortOption } from '@/components/SortSelect';
 import type { SheetStatusFilterValue } from '@/components/SheetStatusFilter';
 
@@ -34,6 +34,7 @@ function App() {
   const [cartOpen, setCartOpen] = useState(false);
   const { addMany, removeMany, items } = useCartStore();
   const gridRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const debouncedSearch = useDebounce(search, SEARCH_DEBOUNCE_MS);
 
@@ -48,6 +49,25 @@ function App() {
       .catch((err) => setError(err?.message || 'Impossible de charger les produits'));
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toLowerCase().includes('mac');
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (e.key === 'Escape') {
+        if (document.activeElement === searchInputRef.current) {
+          setSearch('');
+          searchInputRef.current?.blur();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const sheetStatusCounts = useMemo(() => {
     if (!data) return { available: 0, unavailable: 0, none: 0 };
     const counts = { available: 0, unavailable: 0, none: 0 };
@@ -59,43 +79,66 @@ function App() {
     return counts;
   }, [data]);
 
+  const indexedProducts = useMemo(() => {
+    if (!data) return [];
+    return data.products.map((p) => {
+      const sku = p.sku.toLowerCase();
+      const name = p.name.toLowerCase();
+      const brand = p.brand.toLowerCase();
+      const category = p.category.toLowerCase();
+      const categoryFull = p.categoryFull.toLowerCase();
+      const haystack = `${sku} ${name} ${brand} ${category} ${categoryFull}`.trim();
+      return { p, sku, name, haystack };
+    });
+  }, [data]);
+
   const filteredProducts = useMemo(() => {
     if (!data) return [];
-    let list: Product[] = data.products;
-    if (debouncedSearch.trim()) {
-      const q = debouncedSearch.toLowerCase().trim();
-      list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
-      );
+    const qRaw = debouncedSearch.toLowerCase().trim();
+    const tokens = qRaw ? qRaw.split(/\s+/).filter(Boolean) : [];
+
+    let list = indexedProducts;
+    if (tokens.length > 0) {
+      list = list.filter((x) => tokens.every((t) => x.haystack.includes(t)));
     }
-    if (category) {
-      list = list.filter((p) => p.category === category);
-    }
-    if (brand) {
-      list = list.filter((p) => p.brand === brand);
-    }
-    if (sheetFilter) {
-      list = list.filter((p) => p.sheetStatus === sheetFilter);
-    }
+    if (category) list = list.filter((x) => x.p.category === category);
+    if (brand) list = list.filter((x) => x.p.brand === brand);
+    if (sheetFilter) list = list.filter((x) => x.p.sheetStatus === sheetFilter);
+
+    const score = (x: (typeof indexedProducts)[number]) => {
+      if (!qRaw) return 0;
+      if (x.sku === qRaw) return 1000;
+      if (x.sku.startsWith(qRaw)) return 800;
+      if (x.sku.includes(qRaw)) return 650;
+      if (x.name.includes(qRaw)) return 500;
+      return 0;
+    };
+
     const sorted = [...list].sort((a, b) => {
+      if (qRaw) {
+        const d = score(b) - score(a);
+        if (d !== 0) return d;
+      }
       switch (sort) {
         case 'name-asc':
-          return a.name.localeCompare(b.name);
+          return a.p.name.localeCompare(b.p.name);
         case 'name-desc':
-          return b.name.localeCompare(a.name);
+          return b.p.name.localeCompare(a.p.name);
         case 'sku-asc':
-          return a.sku.localeCompare(b.sku);
+          return a.p.sku.localeCompare(b.p.sku);
         case 'sku-desc':
-          return b.sku.localeCompare(a.sku);
+          return b.p.sku.localeCompare(a.p.sku);
         case 'category':
-          return a.category.localeCompare(b.category) || a.name.localeCompare(b.name);
+          return (
+            a.p.category.localeCompare(b.p.category) ||
+            a.p.name.localeCompare(b.p.name)
+          );
         default:
           return 0;
       }
     });
-    return sorted;
-  }, [data, debouncedSearch, category, brand, sheetFilter, sort]);
+    return sorted.map((x) => x.p);
+  }, [data, indexedProducts, debouncedSearch, category, brand, sheetFilter, sort]);
 
   const paginatedProducts = useMemo(() => {
     const start = (page - 1) * ITEMS_PER_PAGE;
@@ -180,6 +223,7 @@ function App() {
       <Header
         search={search}
         onSearchChange={setSearch}
+        searchInputRef={searchInputRef}
         cartCount={items.length}
         onCartOpen={() => setCartOpen(true)}
       />

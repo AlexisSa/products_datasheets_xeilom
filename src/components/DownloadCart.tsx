@@ -187,7 +187,10 @@ export function DownloadCart({ isOpen, onClose }: DownloadCartProps) {
                     key={item.id}
                     className="flex items-center gap-3 py-2 px-3 rounded-lg bg-muted/50 hover:bg-muted/80 transition-colors"
                   >
-                    <span className="flex-1 min-w-0 truncate text-sm">{item.name}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate text-sm">{item.name}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">{item.sku}</div>
+                    </div>
                     <Button
                       variant="ghost"
                       size="icon"

@@ -9,6 +9,7 @@ import type { SheetStatusFilterValue } from '@/components/SheetStatusFilter';
 interface HeaderProps {
   search: string;
   onSearchChange: (v: string) => void;
+  searchInputRef?: React.RefObject<HTMLInputElement | null>;
   cartCount: number;
   onCartOpen: () => void;
 }
@@ -54,6 +55,7 @@ function FilterSelect({
 export function Header({
   search,
   onSearchChange,
+  searchInputRef,
   cartCount,
   onCartOpen,
 }: HeaderProps) {
@@ -80,6 +82,7 @@ export function Header({
               className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-input bg-muted/30 focus:bg-background focus:border-blue-500/50 dark:focus:border-blue-400/50 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-400/10 outline-none text-sm transition-all"
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
+              ref={searchInputRef}
             />
           </div>
         </div>
