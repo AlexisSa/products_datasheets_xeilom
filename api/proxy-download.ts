@@ -9,20 +9,12 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-const SEC_CH_UA =
-  '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"';
-
-const FETCH_TIMEOUT_MS = 25_000;
-/** Tentatives supplémentaires après échec (403 Cloudflare souvent transitoire ou sensible au profil d’en-têtes). */
-const MAX_RETRIES = 4;
-const RETRY_DELAY_MS_MIN = 450;
-const RETRY_DELAY_MS_MAX = 1600;
+const FETCH_TIMEOUT_MS = 20_000;
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 60;
 
-/** JSON d'erreur structuré pour le client */
 interface ProxyErrorBody {
   code: string;
   message: string;
@@ -50,9 +42,6 @@ function isRateLimited(ip: string): boolean {
   return entry.count > RATE_LIMIT_MAX;
 }
 
-/**
- * Encode chaque segment du pathname (espaces, etc.). new URL() échoue si le raw contient des espaces.
- */
 function encodePathnameSegments(pathname: string): string {
   const segments = pathname.split('/').map((part) => {
     if (!part) return '';
@@ -65,9 +54,6 @@ function encodePathnameSegments(pathname: string): string {
   return segments.join('/') || '/';
 }
 
-/**
- * Normalise l’URL cible pour fetch (pathname encodé).
- */
 function normalizePdfUrl(raw: string): string | null {
   const t = raw.trim();
   let u: URL;
@@ -124,20 +110,12 @@ function extractFilename(url: string, fallback: string): string {
   return fallback;
 }
 
-type HeaderProfile = 'full' | 'minimal';
-
 function isXeilomHost(hostname: string): boolean {
   return hostname === 'www.xeilom.fr' || hostname === 'xeilom.fr';
 }
 
-/**
- * En-têtes proches de Chrome : Client Hints + Sec-Fetch pour mieux passer certains WAF Cloudflare.
- * `minimal` : repli si 403 (certaines configs réagissent mal à Sec-Fetch / Origin).
- */
-function browserFetchHeaders(
-  targetUrl: string,
-  profile: HeaderProfile = 'full'
-): Record<string, string> {
+/** Un seul jeu d’en-têtes, un seul fetch — pas de warm-up ni de retries. */
+function browserFetchHeaders(targetUrl: string): Record<string, string> {
   let u: URL;
   try {
     u = new URL(targetUrl);
@@ -146,74 +124,17 @@ function browserFetchHeaders(
       'User-Agent': BROWSER_UA,
       Accept: 'application/pdf,application/octet-stream,*/*;q=0.8',
       'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+      Referer: 'https://www.xeilom.fr/',
     };
   }
-
   const xeilom = isXeilomHost(u.hostname);
-
-  if (profile === 'minimal') {
-    return {
-      'User-Agent': BROWSER_UA,
-      Accept: '*/*',
-      'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-      ...(xeilom
-        ? { Referer: `${u.origin}/` }
-        : { Referer: 'https://www.xeilom.fr/' }),
-    };
-  }
-
-  const base: Record<string, string> = {
+  return {
     'User-Agent': BROWSER_UA,
     Accept: 'application/pdf,application/octet-stream,*/*;q=0.8',
-    'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Accept-Encoding': 'gzip, deflate, br, zstd',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
     Referer: xeilom ? `${u.origin}/` : 'https://www.xeilom.fr/',
     Origin: xeilom ? u.origin : 'https://www.xeilom.fr',
-    'Cache-Control': 'no-cache',
-    Pragma: 'no-cache',
-    'Sec-Ch-Ua': SEC_CH_UA,
-    'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': '"Windows"',
   };
-
-  if (xeilom) {
-    base['Sec-Fetch-Dest'] = 'document';
-    base['Sec-Fetch-Mode'] = 'navigate';
-    base['Sec-Fetch-Site'] = 'same-origin';
-    base['Sec-Fetch-User'] = '?1';
-    base['Upgrade-Insecure-Requests'] = '1';
-  } else {
-    base['Sec-Fetch-Dest'] = 'document';
-    base['Sec-Fetch-Mode'] = 'navigate';
-    base['Sec-Fetch-Site'] = 'cross-site';
-    base['Sec-Fetch-User'] = '?1';
-  }
-
-  return base;
-}
-
-/** Récupère des cookies __cf_* / session après une visite de la page d’accueil (souvent utile avec Cloudflare). */
-async function tryWarmCookiesForXeilom(): Promise<string | undefined> {
-  try {
-    const res = await fetch('https://www.xeilom.fr/', {
-      method: 'GET',
-      headers: browserFetchHeaders('https://www.xeilom.fr/', 'full'),
-      signal: AbortSignal.timeout(12_000),
-      redirect: 'follow',
-    });
-    await res.arrayBuffer();
-    const h = res.headers as Headers & { getSetCookie?: () => string[] };
-    if (typeof h.getSetCookie === 'function') {
-      const parts = h
-        .getSetCookie()
-        .map((c) => c.split(';')[0].trim())
-        .filter(Boolean);
-      if (parts.length) return parts.join('; ');
-    }
-  } catch {
-    /* ignore */
-  }
-  return undefined;
 }
 
 function isPBFilePlayerUrl(url: string): boolean {
@@ -223,7 +144,7 @@ function isPBFilePlayerUrl(url: string): boolean {
 async function resolvePBFilePlayer(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
-      headers: browserFetchHeaders(url, 'full'),
+      headers: browserFetchHeaders(url),
       redirect: 'manual',
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
@@ -234,21 +155,6 @@ async function resolvePBFilePlayer(url: string): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function shouldRetryUpstream(status: number): boolean {
-  return (
-    status === 403 ||
-    status === 429 ||
-    status === 500 ||
-    status === 502 ||
-    status === 503 ||
-    status === 504
-  );
 }
 
 type FetchPdfSuccess = {
@@ -264,14 +170,11 @@ type FetchPdfFailure = {
   upstreamStatus?: number;
 };
 
-async function fetchPdfOnce(
-  url: string,
-  headers: Record<string, string>
-): Promise<FetchPdfSuccess | FetchPdfFailure> {
+async function fetchPdf(url: string): Promise<FetchPdfSuccess | FetchPdfFailure> {
   let response: Response;
   try {
     response = await fetch(url, {
-      headers,
+      headers: browserFetchHeaders(url),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   } catch (e) {
@@ -297,7 +200,7 @@ async function fetchPdfOnce(
         ok: false,
         code: 'UPSTREAM_FORBIDDEN',
         message:
-          'Accès refusé par le serveur (protection type Cloudflare). Essayez depuis un nouvel onglet.',
+          'Accès refusé par le serveur distant. Ouvrez l’onglet puis enregistrez le PDF (menu ou Ctrl+S / Cmd+S).',
         upstreamStatus: st,
       };
     }
@@ -368,53 +271,6 @@ async function fetchPdfOnce(
     buffer: Buffer.from(await blob.arrayBuffer()),
     contentType,
     filename: extractFilename(url, 'fiche.pdf'),
-  };
-}
-
-async function fetchPdfWithRetries(url: string): Promise<FetchPdfSuccess | FetchPdfFailure> {
-  let last: FetchPdfFailure | null = null;
-  let profile: HeaderProfile = 'full';
-
-  const u = new URL(url);
-  const cookies = isXeilomHost(u.hostname)
-    ? await tryWarmCookiesForXeilom()
-    : undefined;
-
-  function withCookies(h: Record<string, string>): Record<string, string> {
-    if (!cookies) return h;
-    return { ...h, Cookie: cookies };
-  }
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    if (attempt > 0) {
-      const delay =
-        RETRY_DELAY_MS_MIN +
-        Math.random() * (RETRY_DELAY_MS_MAX - RETRY_DELAY_MS_MIN);
-      await sleep(delay);
-    }
-
-    const hdrs = withCookies(browserFetchHeaders(url, profile));
-    const result = await fetchPdfOnce(url, hdrs);
-    if (result.ok) return result;
-
-    last = result;
-    const st = result.upstreamStatus;
-
-    if (st === 403) {
-      profile = profile === 'full' ? 'minimal' : 'full';
-      continue;
-    }
-
-    if (st !== undefined && shouldRetryUpstream(st)) {
-      continue;
-    }
-    return result;
-  }
-
-  return last ?? {
-    ok: false,
-    code: 'UNKNOWN',
-    message: 'Échec après plusieurs tentatives',
   };
 }
 
@@ -495,7 +351,7 @@ export default async function handler(
       }
     }
 
-    const result = await fetchPdfWithRetries(targetUrl);
+    const result = await fetchPdf(targetUrl);
 
     if (!result.ok) {
       const map: Record<string, number> = {

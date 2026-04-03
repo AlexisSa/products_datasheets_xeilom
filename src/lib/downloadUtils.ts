@@ -74,12 +74,11 @@ async function fetchViaProxy(url: string): Promise<FetchViaProxyResult> {
 }
 
 /**
- * Message court pour le toast quand on bascule sur l’ouverture dans un nouvel onglet.
+ * Toast quand le proxy échoue : on ouvre l’URL directe.
+ * On ne peut pas enchaîner un téléchargement automatique depuis un autre domaine (limite navigateur).
  */
 export function formatFallbackToast(info: ProxyDownloadErrorInfo): string {
   const hints: Record<string, string> = {
-    UPSTREAM_FORBIDDEN:
-      'Le serveur a bloqué le téléchargement automatique (ex. Cloudflare).',
     PDF_NOT_FOUND: 'Fichier PDF introuvable.',
     NOT_PDF: 'La réponse n’est pas un PDF.',
     RATE_LIMIT: 'Trop de requêtes vers le proxy, réessayez plus tard.',
@@ -96,10 +95,12 @@ export function formatFallbackToast(info: ProxyDownloadErrorInfo): string {
     SERVER_ERROR: 'Erreur serveur du proxy.',
     NETWORK: 'Connexion au proxy impossible.',
     UNKNOWN: 'Échec du téléchargement via le proxy.',
+    UPSTREAM_FORBIDDEN:
+      'Le serveur bloque le téléchargement automatique. Enregistrez le PDF depuis l’onglet (Ctrl+S / Cmd+S ou menu du lecteur).',
   };
 
-  const hint = hints[info.code] ?? info.message;
-  return `Fiche ouverte dans un nouvel onglet — ${hint}`;
+  const detail = info.message?.trim() || hints[info.code] || hints.UNKNOWN;
+  return `Ouverture dans un nouvel onglet — ${detail}`;
 }
 
 export async function downloadSingle(
