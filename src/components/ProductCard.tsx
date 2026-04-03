@@ -5,7 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Download, ExternalLink, FileWarning, FileX } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { useToastStore } from '@/store/toastStore';
-import { downloadSingle } from '@/lib/downloadUtils';
+import { downloadSingle, formatFallbackToast } from '@/lib/downloadUtils';
 import { getProductUrl } from '@/lib/config';
 import type { Product } from '@/types/product';
 
@@ -99,7 +99,7 @@ export function ProductCard({ product }: ProductCardProps) {
               await downloadSingle(
                 product.sheetUrl,
                 `${product.sku}.pdf`,
-                () => addToast('Fiche ouverte dans un nouvel onglet (CORS)', 'info')
+                (info) => addToast(formatFallbackToast(info), 'info')
               );
             }}
           >

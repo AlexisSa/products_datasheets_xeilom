@@ -16,6 +16,16 @@ Application SaaS de catalogue de produits pour consulter et télécharger les fi
 npm install
 ```
 
+## Audit des fiches PDF (optionnel)
+
+Vérifie les `sheetUrl` (espaces, HTTP 403/404, type de contenu) et produit `reports/sheet-audit.json` + `.csv` :
+
+```bash
+npm run audit-sheets
+```
+
+Sortie par défaut : `reports/sheet-audit.json`. Personnaliser : `node scripts/audit-sheet-urls.js --out mon-rapport.json`.
+
 ## Conversion des données CSV
 
 Le fichier `products.json` est généré à partir du CSV Oxatis :

@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "convert-csv": "node scripts/convert-csv-to-json.js",
-    "resolve-pdfs": "node scripts/resolve-pdf-urls.js"
+    "resolve-pdfs": "node scripts/resolve-pdf-urls.js",
+    "audit-sheets": "node scripts/audit-sheet-urls.js"
   },
   "dependencies": {
     "@vercel/node": "^5.6.15",

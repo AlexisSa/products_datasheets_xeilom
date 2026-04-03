@@ -9,9 +9,31 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+const FETCH_TIMEOUT_MS = 25_000;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS_MIN = 350;
+const RETRY_DELAY_MS_MAX = 750;
+
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 60;
+
+/** JSON d'erreur structuré pour le client */
+interface ProxyErrorBody {
+  code: string;
+  message: string;
+  status: number;
+}
+
+function jsonError(
+  res: VercelResponse,
+  status: number,
+  code: string,
+  message: string
+) {
+  const body: ProxyErrorBody = { code, message, status };
+  return res.status(status).json(body);
+}
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -22,6 +44,55 @@ function isRateLimited(ip: string): boolean {
   }
   entry.count++;
   return entry.count > RATE_LIMIT_MAX;
+}
+
+/**
+ * Encode chaque segment du pathname (espaces, etc.). new URL() échoue si le raw contient des espaces.
+ */
+function encodePathnameSegments(pathname: string): string {
+  const segments = pathname.split('/').map((part) => {
+    if (!part) return '';
+    try {
+      return encodeURIComponent(decodeURIComponent(part));
+    } catch {
+      return encodeURIComponent(part);
+    }
+  });
+  return segments.join('/') || '/';
+}
+
+/**
+ * Normalise l’URL cible pour fetch (pathname encodé).
+ */
+function normalizePdfUrl(raw: string): string | null {
+  const t = raw.trim();
+  let u: URL;
+  try {
+    u = new URL(t);
+  } catch {
+    const m = t.match(/^(https?:\/\/[^/?#]+)([^#]*)(#.*)?$/i);
+    if (!m) return null;
+    const originAndHost = m[1];
+    const pathQuery = m[2] || '/';
+    const hash = m[3] || '';
+    const qIndex = pathQuery.indexOf('?');
+    const pathname =
+      qIndex >= 0 ? pathQuery.slice(0, qIndex) : pathQuery || '/';
+    const search = qIndex >= 0 ? pathQuery.slice(qIndex) : '';
+    const encodedPath = encodePathnameSegments(pathname);
+    const rebuilt = `${originAndHost}${encodedPath}${search}${hash}`;
+    try {
+      u = new URL(rebuilt);
+    } catch {
+      return null;
+    }
+  }
+  const newPath = encodePathnameSegments(u.pathname);
+  try {
+    return new URL(newPath + u.search + u.hash, u.origin).href;
+  } catch {
+    return null;
+  }
 }
 
 function isAllowedUrl(url: string): boolean {
@@ -43,8 +114,20 @@ function extractFilename(url: string, fallback: string): string {
     if (lastSegment && lastSegment.includes('.')) {
       return decodeURIComponent(lastSegment);
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return fallback;
+}
+
+function browserFetchHeaders(): Record<string, string> {
+  return {
+    'User-Agent': BROWSER_UA,
+    Referer: 'https://www.xeilom.fr/',
+    Origin: 'https://www.xeilom.fr',
+    Accept: 'application/pdf,application/octet-stream,*/*;q=0.8',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+  };
 }
 
 function isPBFilePlayerUrl(url: string): boolean {
@@ -54,11 +137,9 @@ function isPBFilePlayerUrl(url: string): boolean {
 async function resolvePBFilePlayer(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
-      headers: {
-        'User-Agent': BROWSER_UA,
-        'Referer': 'https://www.xeilom.fr/',
-      },
+      headers: browserFetchHeaders(),
       redirect: 'manual',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const html = await res.text();
@@ -69,27 +150,164 @@ async function resolvePBFilePlayer(url: string): Promise<string | null> {
   }
 }
 
-async function fetchPdf(url: string): Promise<{ buffer: Buffer; contentType: string; filename: string } | null> {
-  const response = await fetch(url, {
-    headers: { 'User-Agent': BROWSER_UA },
-  });
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
-  if (!response.ok) return null;
+function shouldRetryUpstream(status: number): boolean {
+  return (
+    status === 403 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
+}
+
+type FetchPdfSuccess = {
+  ok: true;
+  buffer: Buffer;
+  contentType: string;
+  filename: string;
+};
+type FetchPdfFailure = {
+  ok: false;
+  code: string;
+  message: string;
+  upstreamStatus?: number;
+};
+
+async function fetchPdfOnce(url: string): Promise<FetchPdfSuccess | FetchPdfFailure> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: browserFetchHeaders(),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+  } catch (e) {
+    const name = e instanceof Error ? e.name : '';
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      return {
+        ok: false,
+        code: 'TIMEOUT',
+        message: 'Délai dépassé lors du téléchargement du PDF',
+      };
+    }
+    return {
+      ok: false,
+      code: 'FETCH_FAILED',
+      message: 'Impossible de joindre le serveur distant',
+    };
+  }
+
+  if (!response.ok) {
+    const st = response.status;
+    if (st === 403) {
+      return {
+        ok: false,
+        code: 'UPSTREAM_FORBIDDEN',
+        message:
+          'Accès refusé par le serveur (protection type Cloudflare). Essayez depuis un nouvel onglet.',
+        upstreamStatus: st,
+      };
+    }
+    if (st === 404) {
+      return {
+        ok: false,
+        code: 'PDF_NOT_FOUND',
+        message: 'Fichier PDF introuvable',
+        upstreamStatus: st,
+      };
+    }
+    if (st === 429) {
+      return {
+        ok: false,
+        code: 'UPSTREAM_RATE_LIMIT',
+        message: 'Trop de requêtes côté serveur distant',
+        upstreamStatus: st,
+      };
+    }
+    return {
+      ok: false,
+      code: 'UPSTREAM_ERROR',
+      message: `Erreur distante (${st})`,
+      upstreamStatus: st,
+    };
+  }
 
   const contentLength = response.headers.get('content-length');
-  if (contentLength && parseInt(contentLength, 10) > MAX_FILE_SIZE) return null;
+  if (contentLength && parseInt(contentLength, 10) > MAX_FILE_SIZE) {
+    return {
+      ok: false,
+      code: 'FILE_TOO_LARGE',
+      message: 'Fichier trop volumineux',
+    };
+  }
 
-  const blob = await response.blob();
-  if (blob.size > MAX_FILE_SIZE) return null;
+  let blob: Blob;
+  try {
+    blob = await response.blob();
+  } catch {
+    return {
+      ok: false,
+      code: 'READ_BODY_FAILED',
+      message: 'Lecture du contenu impossible',
+    };
+  }
+
+  if (blob.size > MAX_FILE_SIZE) {
+    return {
+      ok: false,
+      code: 'FILE_TOO_LARGE',
+      message: 'Fichier trop volumineux',
+    };
+  }
 
   const contentType = response.headers.get('content-type') || 'application/pdf';
 
-  if (contentType.includes('text/html')) return null;
+  if (contentType.includes('text/html')) {
+    return {
+      ok: false,
+      code: 'NOT_PDF',
+      message: 'La réponse n’est pas un PDF (page HTML)',
+    };
+  }
 
   return {
+    ok: true,
     buffer: Buffer.from(await blob.arrayBuffer()),
     contentType,
     filename: extractFilename(url, 'fiche.pdf'),
+  };
+}
+
+async function fetchPdfWithRetries(url: string): Promise<FetchPdfSuccess | FetchPdfFailure> {
+  let last: FetchPdfFailure | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delay =
+        RETRY_DELAY_MS_MIN +
+        Math.random() * (RETRY_DELAY_MS_MAX - RETRY_DELAY_MS_MIN);
+      await sleep(delay);
+    }
+
+    const result = await fetchPdfOnce(url);
+    if (result.ok) return result;
+
+    last = result;
+    const st = result.upstreamStatus;
+    if (st !== undefined && shouldRetryUpstream(st)) {
+      continue;
+    }
+    return result;
+  }
+
+  return last ?? {
+    ok: false,
+    code: 'UNKNOWN',
+    message: 'Échec après plusieurs tentatives',
   };
 }
 
@@ -98,7 +316,7 @@ export default async function handler(
   res: VercelResponse
 ) {
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return jsonError(res, 405, 'METHOD_NOT_ALLOWED', 'Méthode non autorisée');
   }
 
   const clientIp =
@@ -107,39 +325,95 @@ export default async function handler(
       : (req.headers['x-real-ip'] as string)) || 'unknown';
 
   if (isRateLimited(clientIp)) {
-    return res.status(429).json({ error: 'Trop de requêtes, réessayez plus tard' });
+    return jsonError(
+      res,
+      429,
+      'RATE_LIMIT',
+      'Trop de requêtes, réessayez plus tard'
+    );
   }
 
-  const url = typeof req.query.url === 'string' ? req.query.url : null;
-  if (!url || !isAllowedUrl(url)) {
-    return res.status(400).json({ error: 'URL invalide ou non autorisée' });
+  const rawUrl = typeof req.query.url === 'string' ? req.query.url : null;
+  if (!rawUrl) {
+    return jsonError(res, 400, 'MISSING_URL', 'Paramètre url manquant');
+  }
+
+  const normalized = normalizePdfUrl(rawUrl);
+  if (!normalized) {
+    return jsonError(
+      res,
+      400,
+      'INVALID_URL',
+      'URL invalide ou impossible à normaliser'
+    );
+  }
+
+  if (!isAllowedUrl(normalized)) {
+    return jsonError(
+      res,
+      400,
+      'URL_NOT_ALLOWED',
+      'URL non autorisée pour le proxy'
+    );
   }
 
   try {
-    let targetUrl = url;
+    let targetUrl = normalized;
 
-    if (isPBFilePlayerUrl(url)) {
-      const resolvedUrl = await resolvePBFilePlayer(url);
+    if (isPBFilePlayerUrl(normalized)) {
+      const resolvedUrl = await resolvePBFilePlayer(normalized);
       if (!resolvedUrl) {
-        return res.status(404).json({ error: 'Impossible de résoudre le lien PBFilePlayer' });
+        return jsonError(
+          res,
+          404,
+          'PB_RESOLVE_FAILED',
+          'Impossible de résoudre le lien PBFilePlayer'
+        );
       }
-      targetUrl = resolvedUrl;
+      let absolute = resolvedUrl;
+      try {
+        absolute = new URL(resolvedUrl, 'https://www.xeilom.fr/').href;
+      } catch {
+        /* garder resolvedUrl */
+      }
+      const resolvedNorm = normalizePdfUrl(absolute);
+      targetUrl = resolvedNorm || absolute;
+      if (!isAllowedUrl(targetUrl)) {
+        return jsonError(
+          res,
+          400,
+          'URL_NOT_ALLOWED',
+          'URL résolue non autorisée'
+        );
+      }
     }
 
-    const result = await fetchPdf(targetUrl);
+    const result = await fetchPdfWithRetries(targetUrl);
 
-    if (!result) {
-      return res.status(404).json({ error: 'PDF non disponible ou réponse invalide' });
+    if (!result.ok) {
+      const map: Record<string, number> = {
+        PDF_NOT_FOUND: 404,
+        NOT_PDF: 404,
+        UPSTREAM_FORBIDDEN: 403,
+        UPSTREAM_RATE_LIMIT: 429,
+        TIMEOUT: 504,
+        FILE_TOO_LARGE: 413,
+        FETCH_FAILED: 502,
+        READ_BODY_FAILED: 502,
+        UPSTREAM_ERROR: 502,
+      };
+      const status = map[result.code] ?? 502;
+      return jsonError(res, status, result.code, result.message);
     }
 
     res.setHeader('Content-Type', result.contentType);
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${result.filename}"`
+      `attachment; filename="${result.filename.replace(/"/g, '')}"`
     );
     return res.send(result.buffer);
   } catch (err) {
     console.error('Proxy error:', err);
-    return res.status(500).json({ error: 'Erreur serveur' });
+    return jsonError(res, 500, 'SERVER_ERROR', 'Erreur serveur');
   }
 }

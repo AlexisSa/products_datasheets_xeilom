@@ -8,29 +8,114 @@ export interface BulkDownloadResult {
   total: number;
 }
 
+/** Erreur renvoyée par /api/proxy-download (corps JSON) */
+export interface ProxyDownloadErrorInfo {
+  code: string;
+  message: string;
+  httpStatus: number;
+}
+
 const CONCURRENCY = 5;
 
-async function fetchWithProxy(url: string): Promise<Blob> {
+function parseProxyError(
+  res: Response,
+  bodyText: string
+): ProxyDownloadErrorInfo {
+  try {
+    const j = JSON.parse(bodyText) as {
+      code?: string;
+      message?: string;
+      status?: number;
+    };
+    if (typeof j.code === 'string' && typeof j.message === 'string') {
+      return {
+        code: j.code,
+        message: j.message,
+        httpStatus: res.status,
+      };
+    }
+  } catch {
+    /* ignore */
+  }
+  return {
+    code: 'UNKNOWN',
+    message: 'Échec du téléchargement via le proxy',
+    httpStatus: res.status,
+  };
+}
+
+type FetchViaProxyResult =
+  | { ok: true; blob: Blob }
+  | { ok: false; error: ProxyDownloadErrorInfo };
+
+async function fetchViaProxy(url: string): Promise<FetchViaProxyResult> {
   const proxyUrl = getProxyDownloadUrl(url);
-  const res = await fetch(proxyUrl);
-  if (!res.ok) throw new Error('Fetch failed');
-  return res.blob();
+  let res: Response;
+  try {
+    res = await fetch(proxyUrl);
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: 'NETWORK',
+        message: 'Impossible de joindre le proxy (réseau ou CORS)',
+        httpStatus: 0,
+      },
+    };
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    return { ok: false, error: parseProxyError(res, text) };
+  }
+
+  const blob = await res.blob();
+  return { ok: true, blob };
+}
+
+/**
+ * Message court pour le toast quand on bascule sur l’ouverture dans un nouvel onglet.
+ */
+export function formatFallbackToast(info: ProxyDownloadErrorInfo): string {
+  const hints: Record<string, string> = {
+    UPSTREAM_FORBIDDEN:
+      'Le serveur a bloqué le téléchargement automatique (ex. Cloudflare).',
+    PDF_NOT_FOUND: 'Fichier PDF introuvable.',
+    NOT_PDF: 'La réponse n’est pas un PDF.',
+    RATE_LIMIT: 'Trop de requêtes vers le proxy, réessayez plus tard.',
+    UPSTREAM_RATE_LIMIT: 'Trop de requêtes côté serveur distant.',
+    TIMEOUT: 'Délai dépassé.',
+    INVALID_URL: 'URL de fiche invalide.',
+    URL_NOT_ALLOWED: 'URL non autorisée pour le proxy.',
+    MISSING_URL: 'Paramètre manquant.',
+    PB_RESOLVE_FAILED: 'Lien intermédiaire non résolu.',
+    FILE_TOO_LARGE: 'Fichier trop volumineux.',
+    FETCH_FAILED: 'Impossible de joindre le serveur distant.',
+    READ_BODY_FAILED: 'Lecture du fichier impossible.',
+    UPSTREAM_ERROR: 'Erreur du serveur distant.',
+    SERVER_ERROR: 'Erreur serveur du proxy.',
+    NETWORK: 'Connexion au proxy impossible.',
+    UNKNOWN: 'Échec du téléchargement via le proxy.',
+  };
+
+  const hint = hints[info.code] ?? info.message;
+  return `Fiche ouverte dans un nouvel onglet — ${hint}`;
 }
 
 export async function downloadSingle(
   url: string,
   filename: string,
-  onFallback?: () => void
+  onFallback?: (info: ProxyDownloadErrorInfo) => void
 ): Promise<boolean> {
-  try {
-    const blob = await fetchWithProxy(url);
-    saveAs(blob, filename || 'fiche.pdf');
+  const result = await fetchViaProxy(url);
+  if (result.ok) {
+    saveAs(result.blob, filename || 'fiche.pdf');
     return true;
-  } catch {
-    window.open(url, '_blank');
-    onFallback?.();
-    return false;
   }
+
+  window.open(url, '_blank', 'noopener,noreferrer');
+  onFallback?.(result.error);
+  return false;
 }
 
 export interface BulkDownloadItem {
@@ -78,18 +163,22 @@ export async function downloadBulk(
   await runWithConcurrency(
     items,
     async (item) => {
-      try {
-        const blob = await fetchWithProxy(item.sheetUrl);
-        const productFolder = rootFolder?.folder(
-          (item.sku || 'produit').replace(/[^a-zA-Z0-9.-]/g, '_')
-        );
-        const pdfName = `${item.sku}-${item.name.slice(0, 50)}.pdf`.replace(
-          /[^a-zA-Z0-9.-]/g,
-          '_'
-        );
-        productFolder?.file(pdfName, blob);
-        success++;
-      } catch {
+      const result = await fetchViaProxy(item.sheetUrl);
+      if (result.ok) {
+        try {
+          const productFolder = rootFolder?.folder(
+            (item.sku || 'produit').replace(/[^a-zA-Z0-9.-]/g, '_')
+          );
+          const pdfName = `${item.sku}-${item.name.slice(0, 50)}.pdf`.replace(
+            /[^a-zA-Z0-9.-]/g,
+            '_'
+          );
+          productFolder?.file(pdfName, result.blob);
+          success++;
+        } catch {
+          failed++;
+        }
+      } else {
         failed++;
       }
       completed++;
